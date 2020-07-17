@@ -1,10 +1,11 @@
 #!/usr/bin/env python
-
+import rospy
 import cv2
 import numpy as np
 import math
 
 from sklearn import linear_model
+from std_msgs.msg import Float64
 import random
 
 
@@ -107,6 +108,7 @@ class BEVTransform:
             self.fc_y = self.fc_x
 
         self.h = params_cam["Z"]
+        self.x = params_cam["X"]
 
         self.n = float(params_cam["WIDTH"])
         self.m = float(params_cam["HEIGHT"])
@@ -143,11 +145,11 @@ class BEVTransform:
 
         xc, yc, zc = xyz_bird[0, :].reshape([1, -1]), xyz_bird[1, :].reshape([1, -1]), xyz_bird[2, :].reshape([1, -1])
 
-        proj_mtx = project2img_mtx(params_cam)
+        self.proj_mtx = project2img_mtx(params_cam)
 
         xn, yn = xc/zc, yc/zc
         
-        xy1 = np.matmul(proj_mtx, np.concatenate([xn, yn, np.ones_like(xn)], axis = 0))
+        xy1 = np.matmul(self.proj_mtx, np.concatenate([xn, yn, np.ones_like(xn)], axis = 0))
 
         xy1 = xy1[0:2, :].T
 
@@ -185,7 +187,53 @@ class BEVTransform:
 
         return xyz_g
 
-    def 
+    def project_lane2img(self, x_pred, y_pred_l, y_pred_r):
+
+        xyz_l_g = np.concatenate([x_pred.reshape([1, -1]),
+                                  y_pred_l.reshape([1, -1]),
+                                  np.zeros_like(y_pred_l.reshape([1, -1])),
+                                  np.ones_like(y_pred_l.reshape([1, -1])),
+                                  ], axis = 0)
+
+        xyz_r_g = np.concatenate([x_pred.reshape([1, -1]),
+                                  y_pred_r.reshape([1, -1]),
+                                  np.zeros_like(y_pred_r.reshape([1, -1])),
+                                  np.ones_like(y_pred_r.reshape([1, -1])),
+                                  ], axis = 0) 
+
+
+        xyz_l_b = np.matmul(np.linalg.inv(self.RT_b2g), xyz_l_g)
+        xyz_r_b = np.matmul(np.linalg.inv(self.RT_b2g), xyz_r_g)
+
+        xyl = self.project_pts2img(xyz_l_b)
+        xyr = self.project_pts2img(xyz_r_b)
+
+        xyl = self.crop_ptx(xyl)
+        xyr = self.crop_ptx(xyr)
+
+        return xyl, xyr
+
+
+    def project_pts2img(self, xyz_bird):
+
+        xc, yc, zc = xyz_bird[0, :].reshape([1, -1]), xyz_bird[1, :].reshape([1, -1]), xyz_bird[2, :].reshape([1, -1])
+
+        xn, yn = xc/(zc+0.0001), yc/(zc+0.0001)
+
+        xyl = np.matmul(self.proj_mtx, np.concatenate([xn, yn, np.ones_like(xn)], axis=0))
+
+        xyl = xyl[0:2, :].T
+
+        return xyl
+
+
+    def crop_ptx(self, xyl):
+
+        xyl = xyl[np.logical_and(xyl[:, 0]>=0, xyl[:, 0]<self.width), :]
+        xyl = xyl[np.logical_and(xyl[:, 1]>=0, xyl[:, 1]<self.height), :]
+
+        return xyl
+
 
 class CURVEFit:
 
@@ -201,21 +249,21 @@ class CURVEFit:
         self.ransac_left = linear_model.RANSACRegressor(base_estimator=linear_model.Ridge(alpha=2),
                                                         max_trials = 5,
                                                         loss = "absolute_loss",
-                                                        min_sample=self.min_pts,
+                                                        min_samples=self.min_pts,
                                                         residual_threshold = 0.4)
 
         self.ransac_right = linear_model.RANSACRegressor(base_estimator=linear_model.Ridge(alpha=2),
                                                          max_trials = 5,
                                                          loss = "absolute_loss",
-                                                         min_sample=self.min_pts,
+                                                         min_samples=self.min_pts,
                                                          residual_threshold = 0.4)
 
-        self._init_model()
+        self.__init__model()
 
 
-    def _init_model (self):
+    def __init__model (self):
 
-        X = np.stack([np.arange(0, 2, 0.02)**1 for 1 in reversed(range(1, self.order+1))]).T
+        X = np.stack([np.arange(0, 2, 0.02)**i for i in reversed(range(1, self.order+1))]).T
 
         y_l = 0.5*self.lane_width*np.ones_like(np.arange(0, 2, 0.02))
         y_r = -0.5*self.lane_width*np.ones_like(np.arange(0, 2, 0.02))
@@ -238,8 +286,120 @@ class CURVEFit:
         x_g = np.copy(lane_pts[0, :])
         y_g = np.copy(lane_pts[1, :])
         
-        X_g = np.stack([x_g**i for 1 in reversed(range(1, self.order+1))]).T
+        X_g = np.stack([x_g**i for i in reversed(range(1, self.order+1))]).T
 
         y_ransec_collect_r = self.ransac_right.predict(X_g)
 
-        y_right = y_g[np.logical_and(y_g>=)]
+        y_right = y_g[np.logical_and(y_g>=y_ransec_collect_r-self.y_margin, y_g<y_ransec_collect_r+self.y_margin)]
+        x_right = x_g[np.logical_and(y_g>=y_ransec_collect_r-self.y_margin, y_g<y_ransec_collect_r+self.y_margin)]
+
+        y_ransec_collect_r = self.ransac_left.predict(X_g)
+
+        y_left = y_g[np.logical_and(y_g>=y_ransec_collect_r-self.y_margin, y_g<y_ransec_collect_r+self.y_margin)]
+        x_left = x_g[np.logical_and(y_g>=y_ransec_collect_r-self.y_margin, y_g<y_ransec_collect_r+self.y_margin)]
+
+        return x_left, y_left, x_right, y_right
+
+
+    def fit_curve(self, lane_pts):
+
+        x_left, y_left, x_right, y_right = self.preprocess_pts(lane_pts)
+
+        if len(y_left) == 0 or len(y_right) == 0 :
+
+            self.__init__model()
+
+            x_left, y_left, x_right, y_right = self.preprocess_pts(lane_pts)
+
+        X_left = np.stack([x_left**i for i in reversed(range(1, self.order+1))]).T
+        X_right = np.stack([x_right**i for i in reversed(range(1, self.order+1))]).T
+
+        if y_left.shape[0]>=self.ransac_left.min_samples:
+            self.ransac_left.fit(X_left, y_left)
+
+        if y_right.shape[0]>=self.ransac_right.min_samples:
+            self.ransac_right.fit(X_right, y_right)
+
+
+        x_pred = np.arange(0, self.x_range, self.dx).astype(np.float32)
+        X_pred = np.stack([x_pred**i for i in reversed(range(1, self.order+1))]).T
+
+        y_pred_l = self.ransac_left.predict(X_pred)
+        y_pred_r = self.ransac_right.predict(X_pred)
+
+        if y_left.shape[0]>=self.ransac_left.min_samples and y_right.shape[0]>=self.ransac_right.min_samples:
+
+            self.lane_width = np.mean(y_pred_l - y_pred_r)
+
+        if y_left.shape[0]<self.ransac_left.min_samples:
+
+            y_pred_l = y_pred_r - self.lane_width
+
+        if y_right.shape[0]<self.ransac_right.min_samples:
+
+            y_pred_r = y_pred_l - self.lane_width
+
+        return x_pred, y_pred_l, y_pred_r
+
+def draw_lane_img(img, leftx, lefty, rightx, righty):
+
+    point_np = cv2.cvtColor(np.copy(img), cv2.COLOR_GRAY2BGR)
+
+    for ctr in zip(leftx, lefty):
+        point_np = cv2.circle(point_np, ctr, 2, (255, 0, 0), -1)
+
+    for ctr in zip(rightx, righty):
+        point_np = cv2.circle(point_np, ctr, 2, (0, 0, 255), -1)
+
+    return point_np
+
+
+class purePursuit :
+    def __init__ (self, lfd):
+        self.is_look_forward_point = False
+        self.vehicle_length = 1
+
+        self.lfd = lfd
+        self.min_lfd = 0.7
+        self.max_lfd = 1.2
+
+        self.speed_pub = rospy.Publisher("/commands/motor/speed", Float64, queue_size=1)
+        self.position_pub = rospy.Publisher("/commands/servo/position", Float64, queue_size=1)
+
+        self.speed_value = 1000
+
+    def steering_angle (self, x_pred, y_pred_l, y_pred_r):
+
+        y_pred = -0.6 * (y_pred_l+y_pred_r)
+
+        self.is_look_forward_point = False
+        
+        dis_pts = np.sqrt(np.square(x_pred) + np.square(y_pred))
+
+        for i, dis_i in enumerate(dis_pts):
+
+            if x_pred[1]>0 :
+
+                if dis_i >=self.lfd :
+
+                    self.is_look_forward_point = True
+                    
+                    break
+
+        theta = math.atan2(y_pred[i], x_pred[i])
+
+        if self.is_look_forward_point :
+            steering_deg = math.atan2((2*self.vehicle_length*math.sin(theta)), self.lfd)*180/math.pi
+
+            self.steering = np.clip(steering_deg, -22, 22)/44 +0.5
+            print(self.steering)
+            return(self.steering)
+
+        else :
+            self.steering = 0
+            print("no found forward point")
+            return self.steering
+
+    def pub_cmd(self):
+        self.speed_pub.publish(self.speed_value)
+        self.position_pub.publish(self.steering)

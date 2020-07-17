@@ -8,7 +8,8 @@ import json
 
 from sensor_msgs.msg import CompressedImage
 from cv_bridge import CvBridgeError
-from utils import warp_image,BEVTransform
+from std_msgs.msg import Float64
+from utils import warp_image,BEVTransform,CURVEFit, draw_lane_img, purePursuit
 
 class IMGParser:
     def __init__(self):
@@ -37,9 +38,9 @@ class IMGParser:
         lower_wlane = np.array([30, 0, 250])
         upper_wlane = np.array([40, 10, 255])
 
-        img_wlane = cv2.inRange(img_hsv, lower_wlane, upper_wlane)
+        self.img_wlane = cv2.inRange(img_hsv, lower_wlane, upper_wlane)
 
-        self.img_wlane = cv2.cvtColor(img_wlane, cv2.COLOR_GRAY2BGR)
+        # self.img_wlane = cv2.cvtColor(img_wlane, cv2.COLOR_GRAY2BGR)
 
         # img_warp = warp_image(img_wlane, self.source_prop)
 
@@ -115,7 +116,8 @@ if __name__ == "__main__" :
         image_parser = IMGParser()
 
         bev_op = BEVTransform(params_cam=params_cam)
-
+        curve_learner = CURVEFit(order=3)
+        ctrller = purePursuit(lfd=0.8)
         rate = rospy.Rate(30)
 
     while not rospy.is_shutdown():
@@ -130,12 +132,15 @@ if __name__ == "__main__" :
 
         #     rate.sleep()
 
-        if image_parser.edges is not None:
+        if image_parser.img_wlane is not None:
 
-            img_warp = bev_op.warp_bev_img(image_parser.edges)
-            lane_pts = bev_op.recon_lane_pts(image_parser.edges)
+            img_warp = bev_op.warp_bev_img(image_parser.img_wlane)
+            lane_pts = bev_op.recon_lane_pts(image_parser.img_wlane)
 
             x_pred, y_pred_l, y_pred_r = curve_learner.fit_curve(lane_pts)
+
+            ctrller.steering_angle(x_pred, y_pred_l, y_pred_r)
+            ctrller.pub_cmd()
 
             xyl, xyr = bev_op.project_lane2img(x_pred, y_pred_l, y_pred_r)
 
@@ -145,7 +150,7 @@ if __name__ == "__main__" :
                                                 xyr[:, 1].astype(np.int32)
                                                 )
             
-            cv2.imshow("image_window", img_warp)
+            cv2.imshow("image_window", img_warp1)
 
             cv2.waitKey(1)
 
