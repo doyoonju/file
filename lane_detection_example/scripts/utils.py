@@ -7,6 +7,7 @@ import math
 from sklearn import linear_model
 from std_msgs.msg import Float64
 import random
+import matplotlib.pyplot as plt
 
 
 def warp_image(img, source_prop):
@@ -403,3 +404,52 @@ class purePursuit :
     def pub_cmd(self):
         self.speed_pub.publish(self.speed_value)
         self.position_pub.publish(self.steering)
+
+class STOPLineEstimator:
+    def __init__(self):
+
+        self.n_bins = 30
+        self.x_max = 3
+        self.y_max = 0.1
+        self.bins = np.linspace(0, self.x_max, self.n_bins)
+        self.min_pts = 10
+
+        self.sline_pub = rospy.Publisher("/stop_line", Float64, queue_size=1)
+
+    def get_x_point(self, lane_pts):
+
+        self.x = lane_pts[0, np.logical_and(lane_pts[1, :]>-self.y_max, lane_pts[1, :]<=self.y_max)]
+
+    def estimate_dist(self, quantile):
+
+        if self.x.shape[0] > self.min_pts:
+
+            self.d_stopline = np.quantile(self.x, quantile)
+
+        else:
+
+            self.d_stopline = self.x_max
+
+        return self.d_stopline
+
+    def visualize_dist(self):
+
+        fig, ax = plt.subplots(figsize=(8, 4))
+
+        n, bins, patches = ax.hist(self.x, self.bins)
+
+        ax.cla()
+
+        bins = (bins[1:] + bins[:-1])/2
+
+        n_cum = np.cumsum(n)
+
+        n_cum = n_cum/n_cum[-1]
+
+        plt.plot(bins, n_cum)
+
+        plt.show()
+
+    def pub_sline(self):
+
+        self.sline_pub.publish(self.d_stopline)
