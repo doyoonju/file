@@ -5,9 +5,12 @@ import numpy as np
 import math
 
 from sklearn import linear_model
-from std_msgs.msg import Float64
+from std_msgs.msg import Float64, String
 import random
 import matplotlib.pyplot as plt
+
+from nav_msgs.msg import Path,Odometry
+from geometry_msgs.msg import PoseStamped
 
 
 def warp_image(img, source_prop):
@@ -247,6 +250,8 @@ class CURVEFit:
         self.dx = 0.1
         self.min_pts = 50
 
+        self.lane_path = Path()
+
         self.ransac_left = linear_model.RANSACRegressor(base_estimator=linear_model.Ridge(alpha=2),
                                                         max_trials = 5,
                                                         loss = "absolute_loss",
@@ -261,6 +266,27 @@ class CURVEFit:
 
         self.__init__model()
 
+        self.path_pub = rospy.Publisher("lane_path", Path, queue_size=30)
+
+    def write_path_msg(self, x_pred, y_pred_l, y_pred_r):
+
+        self.lane_path = Path()
+
+        self.lane_path.header.frame_id="/map"
+
+        for i in range(lan(x_pred)) :
+            tmp_pose = PoseStamped()
+            tmp_pose.pose.position.x=x_pred[i]
+            tmp_pose.pose.position.y=(-0.5)*(y_pred_l[i]+y_pred_r[i])
+            tmp_pose.pose.position.z=0
+            tmp_pose.pose.orientation.x=0
+            tmp_pose.pose.orientation.y=0
+            tmp_pose.pose.orientation.z=1
+            self.lane_path.poses.append(tmp_pose)
+
+    def pub_path_msg(self):
+
+        self.path_pub.publish(self.lane_path)
 
     def __init__model (self):
 
@@ -364,46 +390,110 @@ class purePursuit :
         self.min_lfd = 0.7
         self.max_lfd = 1.2
 
-        self.speed_pub = rospy.Publisher("/commands/motor/speed", Float64, queue_size=1)
+        self.lpath_sub = rospy.Subscriber("lane_path", Path, self.lane_path_callback)
+
+        # self.speed_pub = rospy.Publisher("/commands/motor/speed", Float64, queue_size=1)
         self.position_pub = rospy.Publisher("/commands/servo/position", Float64, queue_size=1)
 
-        self.speed_value = 1000
+        self.lpath = None
+        
+        # self.speed_value = 1000
+
+    def lane_path_callback(self, msg):
+
+        self.lpath = msg
 
     def steering_angle (self, x_pred, y_pred_l, y_pred_r):
 
-        y_pred = -0.6 * (y_pred_l+y_pred_r)
+        # y_pred = -0.6 * (y_pred_l+y_pred_r)
 
-        self.is_look_forward_point = False
+        # self.is_look_forward_point = False
         
-        dis_pts = np.sqrt(np.square(x_pred) + np.square(y_pred))
+        # dis_pts = np.sqrt(np.square(x_pred) + np.square(y_pred))
 
-        for i, dis_i in enumerate(dis_pts):
+        # for i, dis_i in enumerate(dis_pts):
 
-            if x_pred[1]>0 :
+        #     if x_pred[1]>0 :
 
-                if dis_i >=self.lfd :
+        #         if dis_i >=self.lfd :
 
-                    self.is_look_forward_point = True
+        #             self.is_look_forward_point = True
                     
+        #             break
+        
+        self.is_look_forward_point = False
+
+        for i in self.lpath.poses:
+
+            path_point = i.pose.position
+
+            if path_point.x >0 :
+                dis_i = np.sqrt(np.square(path_point.x) + np.square(path_point.y))
+
+                if dis_i >= self.lfd :
+                    self.is_look_forward_point = True
+
                     break
 
-        theta = math.atan2(y_pred[i], x_pred[i])
+        # theta = math.atan2(y_pred[i], x_pred[i])
+        theta = math.atan2(path_point.y, path_point.x)
 
         if self.is_look_forward_point :
             steering_deg = math.atan2((2*self.vehicle_length*math.sin(theta)), self.lfd)*180/math.pi
 
             self.steering = np.clip(steering_deg, -22, 22)/44 +0.5
             print(self.steering)
-            return(self.steering)
+            # return(self.steering)
 
         else :
             self.steering = 0
             print("no found forward point")
-            return self.steering
+            # return self.steering
+
+    def pub_cmd(self):
+        # self.speed_pub.publish(self.speed_value)
+        self.position_pub.publish(self.steering)
+
+class PID_longitudinal :
+    def __init__ (self, K = 500, safe_dis=1, speed_max = 1000):
+
+        self.sline_sub = rospy.Subscriber("/stop_line", Float64, self.stop_line_callback)
+        self.tlight_sub = rospy.Subscriber("/traffic_light", String, self.traffic_light_callback)
+        
+        self.speed_pub = rospy.Publisher("/commands/motor/speed",Float64, queue_size=1)
+
+        self.speed_max = speed_max
+        self.safe_dis = safe_dis
+        self.K = K
+
+        self.sline = None
+        self.tlight = None
+
+    def traffic_light_callback(self, msg):
+        self.tlight = msg.data
+
+    def stop_line_callback(self, msg):
+        self.sline = msg.data
+
+
+    def calc_val_cmd(self):
+        if self.sline <= self.safe_dis*1.2 and self.sline > self.safe_dis*0.5:
+            if self.tlight == "RED":
+                self.speed_value = 0
+
+                print(self.speed_value)
+
+            elif self.tlight =="YELLOW":
+                self.speed_value = np.clip(self.K*(self.sline-self.safe_dis), 0, self.speed_max)
+
+            else:
+                self.speed_value = self.speed_max
+
+        else:
+            self.speed_value = self.speed_max
 
     def pub_cmd(self):
         self.speed_pub.publish(self.speed_value)
-        self.position_pub.publish(self.steering)
 
 class STOPLineEstimator:
     def __init__(self):

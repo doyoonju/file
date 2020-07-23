@@ -9,7 +9,7 @@ import json
 from sensor_msgs.msg import CompressedImage
 from cv_bridge import CvBridgeError
 from std_msgs.msg import Float64
-from utils import warp_image,BEVTransform,CURVEFit, draw_lane_img, purePursuit,STOPLineEstimator
+from utils import BEVTransform, STOPLineEstimator#, warp_image, CURVEFit, draw_lane_img, purePursuit
 
 
 class IMGParser:
@@ -56,28 +56,28 @@ class IMGParser:
 
         # cv2.setMouseCallback("mouseRGB", self.mouseRGB) #2
 
-        lower_sig_r = np.array([0, 250, 250])
-        upper_sig_r = np.array([15, 255, 255])
+        # lower_sig_r = np.array([0, 250, 250])
+        # upper_sig_r = np.array([15, 255, 255])
 
-        lower_sig_y = np.array([20, 250, 250])
-        upper_sig_y = np.array([35, 255, 255])
+        # lower_sig_y = np.array([20, 250, 250])
+        # upper_sig_y = np.array([35, 255, 255])
 
-        lower_sig_g = np.array([50, 250, 250])
-        upper_sig_g = np.array([70, 255, 255])
+        # lower_sig_g = np.array([50, 250, 250])
+        # upper_sig_g = np.array([70, 255, 255])
 
-        img_r = cv2.resize(cv2.inRange(img_hsv, lower_sig_r, upper_sig_r), (w/2, h/2))
-        img_y = cv2.resize(cv2.inRange(img_hsv, lower_sig_y, upper_sig_y), (w/2, h/2))
-        img_g = cv2.resize(cv2.inRange(img_hsv, lower_sig_g, upper_sig_g), (w/2, h/2))
+        # img_r = cv2.resize(cv2.inRange(img_hsv, lower_sig_r, upper_sig_r), (w/2, h/2))
+        # img_y = cv2.resize(cv2.inRange(img_hsv, lower_sig_y, upper_sig_y), (w/2, h/2))
+        # img_g = cv2.resize(cv2.inRange(img_hsv, lower_sig_g, upper_sig_g), (w/2, h/2))
 
-        img_r[int(h/3/2):,:] = 0
-        img_y[int(h/3/2):,:] = 0
-        img_g[int(h/3/2):,:] = 0
-        img_concat = np.concatenate([img_r, img_y, img_g], axis=1)
+        # img_r[int(h/3/2):,:] = 0
+        # img_y[int(h/3/2):,:] = 0
+        # img_g[int(h/3/2):,:] = 0
+        # img_concat = np.concatenate([img_r, img_y, img_g], axis=1)
         
         # cv2.imshow("Image window", img_hsv) #1
         # cv2.imshow("Image window", img_warp)
-        cv2.imshow("Image window", img_concat)
-        cv2.waitKey(1)
+        # cv2.imshow("Image window", img_concat)
+        # cv2.waitKey(1)
 
     def warp_image(img, source_prop):
 
@@ -100,17 +100,17 @@ class IMGParser:
 
         return warped_img
     
-    def mouseRGB(self, event, x, y, flags, param):
-        if event == cv2.EVENT_LBUTTONDOWN:
-            colorsB = self.img_hsv[y, x, 0]
-            colorsG = self.img_hsv[y, x, 1]
-            colorsR = self.img_hsv[y, x, 2]
-            colors = self.img_hsv[y, x]
-            print("Red: ", colorsR)
-            print("Green: ", colorsG)
-            print("Blue: ", colorsB)
-            print("BGR format: ", colors)
-            print("Coordinates of pixel: X:", x, "Y: ", y)
+    # def mouseRGB(self, event, x, y, flags, param):
+    #     if event == cv2.EVENT_LBUTTONDOWN:
+    #         colorsB = self.img_hsv[y, x, 0]
+    #         colorsG = self.img_hsv[y, x, 1]
+    #         colorsR = self.img_hsv[y, x, 2]
+    #         colors = self.img_hsv[y, x]
+    #         print("Red: ", colorsR)
+    #         print("Green: ", colorsG)
+    #         print("Blue: ", colorsB)
+    #         print("BGR format: ", colors)
+    #         print("Coordinates of pixel: X:", x, "Y: ", y)
      
 
 # if __name__ == "__main__":
@@ -133,13 +133,13 @@ if __name__ == "__main__" :
 
         params_cam = sensor_params["params_cam"]
 
-        rospy.init_node("image_parser", anonymous=True)
+        rospy.init_node("stopline_detector", anonymous=True)
 
         image_parser = IMGParser()
 
         bev_op = BEVTransform(params_cam=params_cam)
-        curve_learner = CURVEFit(order=1)
-        ctrller = purePursuit(lfd=0.8)
+        # curve_learner = CURVEFit(order=1)
+        # ctrller = purePursuit(lfd=0.8)
         sline_detector = STOPLineEstimator()
 
         rate = rospy.Rate(30)
@@ -158,32 +158,32 @@ if __name__ == "__main__" :
 
         if image_parser.img_wlane is not None:
 
-            img_warp = bev_op.warp_bev_img(image_parser.img_wlane)
+            # img_warp = bev_op.warp_bev_img(image_parser.img_wlane)
             lane_pts = bev_op.recon_lane_pts(image_parser.img_wlane)
 
             sline_detector.get_x_point(lane_pts)
             sline_detector.estimate_dist(0.3)
-            sline_detector.visualize_dist()
+            # sline_detector.visualize_dist()
             sline_detector.pub_sline()
 
-            x_pred, y_pred_l, y_pred_r = curve_learner.fit_curve(lane_pts)
+            # x_pred, y_pred_l, y_pred_r = curve_learner.fit_curve(lane_pts)
 
-            curve_learner.write_path_msg(x_pred, y_pred_l, y_pred_r)
-            curve_learner.pub_path_msg()
+            # curve_learner.write_path_msg(x_pred, y_pred_l, y_pred_r)
+            # curve_learner.pub_path_msg()
 
             # ctrller.steering_angle(x_pred, y_pred_l, y_pred_r)
             # ctrller.pub_cmd()
 
-            xyl, xyr = bev_op.project_lane2img(x_pred, y_pred_l, y_pred_r)
+            # xyl, xyr = bev_op.project_lane2img(x_pred, y_pred_l, y_pred_r)
 
-            img_warp1 = draw_lane_img(img_warp, xyl[:, 0].astype(np.int32),
-                                                xyl[:, 1].astype(np.int32),
-                                                xyr[:, 0].astype(np.int32),
-                                                xyr[:, 1].astype(np.int32)
-                                                )
+            # img_warp1 = draw_lane_img(img_warp, xyl[:, 0].astype(np.int32),
+            #                                     xyl[:, 1].astype(np.int32),
+            #                                     xyr[:, 0].astype(np.int32),
+            #                                     xyr[:, 1].astype(np.int32)
+            #                                     )
             
-            cv2.imshow("image_window", img_warp1)
+            # cv2.imshow("image_window", img_warp1)
 
-            cv2.waitKey(1)
+            # cv2.waitKey(1)
 
             rate.sleep()
