@@ -20,7 +20,7 @@ class path_pub :
 
         self.path_pub = rospy.Publisher("/path", Path, queue_size=1)
         self.path_msg = Path()
-        self.path_msg.header.frame_id="/odom"
+        self.path_msg.header.frame_id="/map"
 
         rospack = rospkg.RosPack()
         pkg_path = rospack.get_path("control_planner")
