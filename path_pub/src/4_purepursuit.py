@@ -38,6 +38,8 @@ class pure_pursuit :
         self.steering_angle_to_servo_gain =-1.2135
         self.steering_angle_to_servo_offset=0.5304   
         rate = rospy.Rate(30) # 30hz
+
+
         while not rospy.is_shutdown():
 
             if self.is_path ==True and (self.is_odom==True or self.is_amcl==True) :
@@ -112,3 +114,5 @@ if __name__ == '__main__':
         test_track=pure_pursuit()
     except rospy.ROSInterruptException:
         pass
+
+

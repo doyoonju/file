@@ -51,6 +51,7 @@ class velocityPlanning :
             out_vel_plan.append(self.car_max_speed)
         return out_vel_plan
 
+
 class path_pub_tf :
 
     def __init__(self):

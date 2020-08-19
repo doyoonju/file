@@ -84,7 +84,7 @@ class pure_pursuit :
                     if self.is_target_vel==True :
                         self.motor_msg.data=self.target_vel*self.rpm_gain/3.6
                     else :
-                        self.motor_msg.data=60000
+                        self.motor_msg.data=30000
                     
                     print(self.steering*180/pi,self.motor_msg.data/self.rpm_gain*3.6) #degree
                 else : 
